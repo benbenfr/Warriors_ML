@@ -1,0 +1,112 @@
+---
+title: "Warriors ML"
+output: html_notebook
+---
+
+The idea here is to determine which center is going to be used by the Golden States Warriors
+The model is simple, but the interest of it resides in its application
+Indeed, the point here is that exactly the same procedure can be applied in several HR scenarios
+Who should be assigned to what job, based on historical records?
+
+```{r}
+rm(list=ls()) #clear environment
+library(reshape)
+nba <- read.csv("~/Downloads/Warriors_stats - Sheet1.csv")
+nba$Conference<-ifelse(nba$Opponent=="Sacramento Kings"|
+                         nba$Opponent=="Los Angeles Lakers"|
+                         nba$Opponent=="Portland Trail Blazers"|
+                         nba$Opponent=="Los Angeles Clippers"|
+                         nba$Opponent=="Houston Rockets"|
+                         nba$Opponent=="Phoenix Suns"|
+                         nba$Opponent=="San Antonio Spurs"|
+                         nba$Opponent=="Utah Jazz"|
+                         nba$Opponent=="Oklahoma City Thunder"|
+                         nba$Opponent=="New Orleans Pelicans"|
+                         nba$Opponent=="Minnesota Timberwolves"|
+                         nba$Opponent=="Dallas Mavericks"|
+                         nba$Opponent=="Denver Nuggets"|
+                         nba$Opponent=="Memphis Grizzlies","West","East")
+nba$Date<-substr(nba$Date,6,nchar(as.character(nba$Date)))
+nba$Date<-as.Date(nba$Date, format="%b %d, %Y")
+nba$GS<-ifelse(nchar(nba$Game)==1,paste(nba$Season,0,nba$Game,sep=""),paste(nba$Season,nba$Game,sep=""))
+nba <- nba[order(nba$Season, nba$Game),]
+start5<-as.data.frame(t(as.data.frame(strsplit(as.character(nba$Starting.Lineup), " · "))))
+rownames(start5)<-c(1:length(start5[,1]))
+start5<-as.data.frame(t(as.data.frame(strsplit(as.character(nba$Starting.Lineup), " · "))))
+rownames(start5)<-c(1:length(start5[,1]))
+start5 <- cast(melt(t(start5)), X2~value)
+start5<-start5[,-1]
+
+centers<-c("A. Bogut","D. Cousins","D. Jones","F. Ezeli","Z. Pachulia",
+           "A. Varej�o","J. McGee","K. Looney")
+start5<- subset (start5, select = centers )
+
+
+library(gtools)
+for (i in 1:length(start5)){
+  start5[,i]<-as.numeric(start5[,i])
+  start5[,i]<-na.replace(start5[,i], 0)
+}
+cols <- c( 1:length(start5) )
+start5$compo<- apply( start5[ , cols ] , 1 , paste , collapse = "" )
+nba<-nba[,-6]
+
+temp<-unique(start5$compo)
+nba$compo<-0
+for (i in 1:length(start5$compo)){
+  for (j in 1:length(temp)){
+  nba$compo[i]<-ifelse(start5$compo[i]==temp[j],j,nba$compo[i])
+}}
+
+temp<-as.data.frame(table(nba$compo))
+
+for (i in 1:length(nba$compo)){
+  for (j in 1:length(temp[,1])){
+    nba$compo[i]<-ifelse(nba$compo[i]==temp$Var1[j]&temp$Freq[j]<10,nba$compo[i],nba$compo[i])
+  }
+}
+
+unique(nba$compo)
+
+nba$Conference<-as.factor((nba$Conference))
+nba$GS<-as.factor(nba$GS)
+
+str(nba)
+
+#nba<-as.data.frame(nba[,c(1:5,7:length(nba))])
+
+
+set.seed(123)
+ind<-sample(2, nrow(nba),replace=TRUE, prob=c(0.9,0.1))
+train<-nba[ind==1,]
+test<-nba[ind==2,]
+
+nba$diff<-nba$Win-nba$Loses
+
+library(randomForest)
+set.seed(222)
+output.forest <- randomForest(as.factor(compo) ~ Game + Opponent + Season + Conference, 
+                              data = nba)
+print(output.forest)
+
+require("caret")
+library(e1071)
+
+p1<-predict(output.forest,train)
+head(p1)
+head(train$compo)
+tc<-as.factor(train$compo)
+confusionMatrix(p1,tc)
+
+p2<-predict(output.forest,test)
+head(p2)
+head(test$compo)
+tc2<-test$compo
+tc2[30]<-9 # trick
+tc2[31]<-6 # trick
+tc2<-as.factor(tc2)
+confusionMatrix(p2,tc2)
+
+plot(output.forest)
+
+```
